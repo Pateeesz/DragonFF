@@ -32,8 +32,8 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
     export_version  : bpy.props.EnumProperty(
         items =
         (
-            ('1', "GTA 3/VC (COLL)", "Grand Theft Auto 3 and Vice City (PC) - Version 1"),
             ('3', "GTA SA PC/Xbox (COL3)", "Grand Theft Auto SA (PC/Xbox) - Version 3"),
+            ('1', "GTA 3/VC (COLL)", "Grand Theft Auto 3 and Vice City (PC) - Version 1"),
             ('2', "GTA SA PS2 (COL2)", "Grand Theft Auto SA (PS2) - Version 2")
         ),
         name = "Version Export"

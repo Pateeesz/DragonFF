@@ -123,9 +123,13 @@ class dff_importer:
             mesh['dragon_normals'] = False
             mesh['dragon_pipeline'] = 'NONE'
             mesh['dragon_cust_pipeline'] = None
+            mesh['dragon_binsplit'] = (geom.flags & dff.rpGEOMETRYTRISTRIP) != 0
             mesh['dragon_light'] = (geom.flags & dff.rpGEOMETRYLIGHT) != 0
             mesh['dragon_modulate_color'] = \
                 (geom.flags & dff.rpGEOMETRYMODULATEMATERIALCOLOR) != 0
+            mesh['dragon_day_cols'] = False
+            mesh['dragon_night_cols'] = False
+            mesh['dragon_uv_map2'] = False
             mesh['dragon_triangle_strip'] = (geom.flags & dff.rpGEOMETRYTRISTRIP) != 0
 
             uv_layers = []
@@ -155,15 +159,17 @@ class dff_importer:
             
             # Add UV Layers
             for layer in geom.uv_layers:
-                uv_layers.append(bm.loops.layers.uv.new())
+                uv_layers.append(bm.loops.layers.uv.new('UVMap'))
                 
             # Add Vertex Colors
             if geom.flags & dff.rpGEOMETRYPRELIT:
-                vertex_color = bm.loops.layers.color.new()
+                vertex_color = bm.loops.layers.color.new('Day')
+                mesh['dragon_day_cols'] = True
 
             extra_vertex_color = None
             if 'extra_vert_color' in geom.extensions:
-                extra_vertex_color = bm.loops.layers.color.new()
+                extra_vertex_color = bm.loops.layers.color.new('Night')
+                mesh['dragon_night_cols'] = True
 
             if (dff_importer.use_mat_split or not geom.triangles) and 'mat_split' in geom.extensions:
                 faces = geom.extensions['mat_split']
@@ -700,21 +706,29 @@ class dff_importer:
 
                 else:
                     # Set object properties from mesh properties
-                    obj.dff.pipeline       = mesh['dragon_pipeline']
-                    obj.dff.export_normals = mesh['dragon_normals']
-                    obj.dff.light          = mesh['dragon_light']
-                    obj.dff.modulate_color = mesh['dragon_modulate_color']
+                    obj.dff.pipeline        = mesh['dragon_pipeline']
+                    obj.dff.export_normals  = mesh['dragon_normals']
+                    obj.dff.export_binsplit = mesh['dragon_binsplit']
+                    obj.dff.light           = mesh['dragon_light']
+                    obj.dff.modulate_color  = mesh['dragon_modulate_color']
+                    obj.dff.day_cols        = mesh['dragon_day_cols']
+                    obj.dff.night_cols      = mesh['dragon_night_cols']
+                    obj.dff.uv_map2         = mesh['dragon_uv_map2']
                     obj.dff.triangle_strip = mesh['dragon_triangle_strip']
 
                     if obj.dff.pipeline == 'CUSTOM':
                         obj.dff.custom_pipeline = mesh['dragon_cust_pipeline']
                     
                     # Delete temporary properties used earlier
-                    del mesh['dragon_pipeline'      ]
-                    del mesh['dragon_normals'       ]
-                    del mesh['dragon_cust_pipeline' ]
-                    del mesh['dragon_light'         ]
+                    del mesh['dragon_pipeline']
+                    del mesh['dragon_normals']
+                    del mesh['dragon_binsplit']
+                    del mesh['dragon_cust_pipeline']
+                    del mesh['dragon_light']
                     del mesh['dragon_modulate_color']
+                    del mesh['dragon_day_cols']
+                    del mesh['dragon_night_cols']
+                    del mesh['dragon_uv_map2']
                     del mesh['dragon_triangle_strip']
                     
                 # Set vertex groups
