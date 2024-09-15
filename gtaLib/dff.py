@@ -40,6 +40,9 @@ DualFX      = namedtuple("DualFX"      , "src_blend dst_blend texture")
 ReflMat     = namedtuple("ReflMat"     , "s_x s_y o_x o_y intensity")
 SpecularMat = namedtuple("SpecularMap" , "level texture")
 
+TexDict = namedtuple("TexDict", "texture_count device_id")
+PITexDict = namedtuple("PITexDict", "texture_count device_id")
+
 UserDataSection = namedtuple("UserDataSection", "name data")
 
 # geometry flags
@@ -101,9 +104,13 @@ types = {
     "Geometry"                : 15,
     "Clump"                   : 16,
     "Atomic"                  : 20,
+    "Texture Native"          : 21,
+    "Texture Dictionary"      : 22,
+    "Image"                   : 24,
     "Geometry List"           : 26,
     "Animation Anim"          : 27,
     "Right to Render"         : 31,
+    "PI Texture Dictionary"   : 35,
     "UV Animation Dictionary" : 43,
     "Morph PLG"               : 261,
     "Skin PLG"                : 278,
@@ -156,7 +163,10 @@ class Sections:
         Atomic      : "<4I",
         TexCoords   : "<2f",
         ReflMat     : "<5f4x",
-        SpecularMat : "<f24s"
+        SpecularMat : "<f24s",
+
+        TexDict : "<2H",
+        PITexDict: "<2H"
     }
 
     library_id = 0 # used for writing
@@ -587,8 +597,8 @@ class Frame:
     def __init__(self):
         self.rotation_matrix = None
         self.position        = None
-        self.parent          = None
-        self.creation_flags  = None
+        self.parent          = -1
+        self.creation_flags  = 0
         self.name            = None
         self.bone_data       = None
         self.user_data       = None
@@ -2113,73 +2123,78 @@ class dff:
             geometries = unpack_from("<I", self.data, self._read(4))[0]
 
             # Read geometries
-            for i in range(geometries):
+            for _ in range(geometries):
                 chunk = self.read_chunk()
 
                 # GEOMETRY
-                if chunk.type == types["Geometry"]:  
-                    chunk_end = self.pos + chunk.size
+                if chunk.type == types["Geometry"]:
+                    self.read_geometry(chunk)
 
-                    chunk = self.read_chunk()
-                    geometry = Geometry.from_mem(self.data[self.pos:], parent_chunk)
+    #######################################################
+    def read_geometry(self, parent_chunk):
 
+        chunk_end = self.pos + parent_chunk.size
+
+        chunk = self.read_chunk()
+        geometry = Geometry.from_mem(self.data[self.pos:], parent_chunk)
+
+        self._read(chunk.size)
+
+        self.geometry_list.append(geometry)
+
+        while self.pos < chunk_end:
+
+            chunk = self.read_chunk()
+
+            if chunk.type == types["Material List"]:
+                self.read_material_list(chunk)
+
+            elif chunk.type == types["Extension"]:
+                pass
+
+            elif chunk.type == types["Delta Morph PLG"]:
+                delta_morph = DeltaMorphPLG.from_mem(self.data[self.pos:])
+                geometry.extensions["delta_morph"] = delta_morph
+
+                self._read(chunk.size)
+
+            elif chunk.type == types["Skin PLG"]:
+
+                skin = SkinPLG.from_mem(self.data[self.pos:], geometry)
+                geometry.extensions["skin"] = skin
+
+                self._read(chunk.size)
+
+            elif chunk.type == types["Extra Vert Color"]:
+
+                geometry.extensions['extra_vert_color'] = \
+                    ExtraVertColorExtension.from_mem (
+                        self.data, self._read(chunk.size), geometry
+                    )
+
+            elif chunk.type == types["User Data PLG"]:
+                geometry.extensions['user_data'] = \
+                    UserData.from_mem(self.data[self.pos:])
+
+                self._read(chunk.size)
+
+            # 2dfx (usually at the last geometry index)
+            elif chunk.type == types["2d Effect"]:
+                self.ext_2dfx += Extension2dfx.from_mem(
+                    self.data,
                     self._read(chunk.size)
+                )
 
-                    self.geometry_list.append(geometry)
+            elif chunk.type == types["Bin Mesh PLG"]:
+                self.read_mesh_plg(chunk,geometry)
 
-                    while self.pos < chunk_end:
+            elif chunk.type == types["Native Data PLG"]:
+                self.read_native_data_plg(chunk,geometry)
 
-                        chunk = self.read_chunk()
+            else:
+                self._read(chunk.size)
 
-                        if chunk.type == types["Material List"]:  
-                            self.read_material_list(chunk)
-
-                        elif chunk.type == types["Extension"]:
-                            pass
-
-                        elif chunk.type == types["Delta Morph PLG"]:
-                            delta_morph = DeltaMorphPLG.from_mem(self.data[self.pos:])
-                            geometry.extensions["delta_morph"] = delta_morph
-
-                            self._read(chunk.size)
-
-                        elif chunk.type == types["Skin PLG"]:
-                            
-                            skin = SkinPLG.from_mem(self.data[self.pos:], geometry)
-                            geometry.extensions["skin"] = skin
-                            
-                            self._read(chunk.size)
-
-                        elif chunk.type == types["Extra Vert Color"]:
-                            
-                            geometry.extensions['extra_vert_color'] = \
-                                ExtraVertColorExtension.from_mem (
-                                    self.data, self._read(chunk.size), geometry
-                                )
-
-                        elif chunk.type == types["User Data PLG"]:
-                            geometry.extensions['user_data'] = \
-                                UserData.from_mem(self.data[self.pos:])
-
-                            self._read(chunk.size)
-
-                        # 2dfx (usually at the last geometry index)
-                        elif chunk.type == types["2d Effect"]:
-                            self.ext_2dfx += Extension2dfx.from_mem(
-                                self.data,
-                                self._read(chunk.size)
-                            )
-                            
-                        elif chunk.type == types["Bin Mesh PLG"]: 
-                           self.read_mesh_plg(chunk,geometry)
-
-                        elif chunk.type == types["Native Data PLG"]:
-                            self.read_native_data_plg(chunk,geometry)
-
-                        else:
-                            self._read(chunk.size)
-
-                    self.pos = chunk_end
+        self.pos = chunk_end
 
     #######################################################
     def read_atomic(self, parent_chunk):
@@ -2194,19 +2209,28 @@ class dff:
 
             # STRUCT
             if chunk.type == types["Struct"]:
-                atomic = Sections.read(Atomic, self.data, self.pos)
-                self.atomic_list.append(atomic)
+                atomic = Sections.read(Atomic, self.data, self._read(chunk.size))
 
-            if chunk.type == types["Extension"]:
-                self.pos -= chunk.size
+            elif chunk.type == types["Extension"]:
+                pass
 
-            if chunk.type == types["Pipeline Set"]:
-                pipeline = unpack_from("<I", self.data, self.pos)[0]               
-            self.pos += chunk.size
+            elif chunk.type == types["Geometry"]:
+                self.read_geometry(chunk)
+                geometry_index = len(self.geometry_list) - 1
+                atomic = atomic._replace(geometry=geometry_index)
 
-        # Set geometry's pipeline
-        if pipeline and atomic:
-            self.geometry_list[atomic.geometry].pipeline = pipeline
+            elif chunk.type == types["Pipeline Set"]:
+                pipeline = unpack_from("<I", self.data, self._read(chunk.size))[0]
+
+            else:
+                self.pos += chunk.size
+
+        if atomic:
+            self.atomic_list.append(atomic)
+
+            # Set geometry's pipeline
+            if pipeline:
+                self.geometry_list[atomic.geometry].pipeline = pipeline
 
     #######################################################
     def read_clump(self, root_chunk):
@@ -2281,7 +2305,10 @@ class dff:
 
             elif chunk.type == types["UV Animation Dictionary"]:
                 self.read_uv_anim_dict()
-                
+
+            elif chunk.type == types["Atomic"]:
+                self.read_atomic(chunk)
+                self.rw_version = Sections.get_rw_version(chunk.version)
 
     #######################################################
     def clear(self):

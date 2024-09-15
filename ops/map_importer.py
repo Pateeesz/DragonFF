@@ -65,13 +65,15 @@ class Map_Import_Operator(bpy.types.Operator):
             return
 
         model = self._object_data[inst.id].modelName
+        txd = self._object_data[inst.id].txdName
 
         if inst.id in self._model_cache:
 
             # Get model from memory
-            objGroup = self._model_cache[inst.id]
-            newGroup = []
-            for obj in objGroup:
+            model_cache = self._model_cache[inst.id]
+            cached_objects = model_cache.values()
+            new_objects = {}
+            for obj in cached_objects:
                 new_obj = bpy.data.objects.new(model, obj.data)
                 new_obj.location = obj.location
                 new_obj.rotation_quaternion = obj.rotation_quaternion
@@ -79,7 +81,7 @@ class Map_Import_Operator(bpy.types.Operator):
 
                 modifier = new_obj.modifiers.new("EdgeSplit", 'EDGE_SPLIT')
                 # When added to some objects (empties?), returned modifier is None
-                if(modifier is not None):
+                if modifier is not None:
                     modifier.use_edge_angle = False
 
                 if '{}.dff'.format(model) in bpy.data.collections:
@@ -88,16 +90,15 @@ class Map_Import_Operator(bpy.types.Operator):
                     )
                 else:
                     context.collection.objects.link(new_obj)
-                newGroup.append(new_obj)
+                new_objects[obj] = new_obj
             # Parenting
-            for obj in objGroup:
-                if obj.parent in objGroup:
-                    newGroup[objGroup.index(obj)].parent = \
-                        newGroup[objGroup.index(obj.parent)]
+            for obj in cached_objects:
+                if obj.parent in cached_objects:
+                    new_objects[obj].parent = new_objects[obj.parent]
             # Position root object
-            if len(newGroup) > 0:
+            if len(new_objects) > 0:
                 Map_Import_Operator.apply_transformation_to_object(
-                    newGroup[0], inst
+                    new_objects[model_cache[0]], inst
                 )
             print(str(inst.id) + ' loaded from cache')
         else:
@@ -110,6 +111,9 @@ class Map_Import_Operator(bpy.types.Operator):
                     'file_name'      : "%s/%s.dff" % (
                         self.settings.dff_folder, model
                     ),
+                    'load_txd'       : self.settings.load_txd,
+                    'txd_filename'   : "%s.txd" % txd,
+                    'skip_mipmaps'   : True,
                     'image_ext'      : 'PNG',
                     'connect_bones'  : False,
                     'use_mat_split'  : self.settings.read_mat_split,
